@@ -98,7 +98,33 @@ class CenterLineMetricsWidget(ScriptedLoadableModuleWidget):
     self.outputPlotSeriesSelector.setMRMLScene( slicer.mrmlScene )
     self.outputPlotSeriesSelector.setToolTip( "Pick the output plot series to the algorithm." )
     parametersFormLayout.addRow("Output plot series: ", self.outputPlotSeriesSelector)
-
+    
+    #
+    # Axis selector
+    # https://cpp.hotexamples.com/it/examples/-/-/spy3/cpp-spy3-function-examples.html
+    #
+    self.widget = qt.QWidget()
+    self.rasLayout = qt.QHBoxLayout()
+    self.group = ctk.ctkButtonGroup(self.widget)
+    self.radioR = qt.QRadioButton()
+    self.radioA = qt.QRadioButton()
+    self.radioS = qt.QRadioButton()
+    self.radioR.setText("R")
+    self.radioA.setText("A")
+    self.radioS.setText("S")
+    self.rasLayout.addWidget(self.radioR)
+    self.rasLayout.addWidget(self.radioA)
+    self.rasLayout.addWidget(self.radioS)
+    self.group.addButton(self.radioR)
+    self.group.addButton(self.radioA)
+    self.group.addButton(self.radioS)
+    self.widget.setLayout(self.rasLayout)
+    self.radioS.setChecked(True) # Default to superior
+    self.radioR.setToolTip("X axis")
+    self.radioA.setToolTip("Z axis")
+    self.radioS.setToolTip("Y axis")
+    parametersFormLayout.addRow("Axis: ", self.widget)
+    
     #
     # Apply Button
     #
@@ -113,6 +139,9 @@ class CenterLineMetricsWidget(ScriptedLoadableModuleWidget):
     self.inputModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectNode)
     self.outputPlotSeriesSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectNode)
     self.outputTableSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectNode)
+    self.radioR.connect("clicked()", self.onRadioR)
+    self.radioA.connect("clicked()", self.onRadioA)
+    self.radioS.connect("clicked()", self.onRadioS)
 
     # Add vertical spacer
     self.layout.addStretch(1)
@@ -140,6 +169,18 @@ class CenterLineMetricsWidget(ScriptedLoadableModuleWidget):
   def onApplyButton(self):
     self.createOutputNodes()
     self.logic.update()
+  
+  def onRadioR(self):
+    self.group.setId(self.radioR, 0)
+    self.logic.setAxis(self.group.id(self.radioR)) # Why not pass 0 ?
+    
+  def onRadioA(self):
+    self.group.setId(self.radioA, 1)
+    self.logic.setAxis(self.group.id(self.radioA))
+    
+  def onRadioS(self):
+    self.group.setId(self.radioS, 2)
+    self.logic.setAxis(self.group.id(self.radioS))
 
 #
 # CenterLineMetricsLogic
@@ -160,6 +201,7 @@ class CenterLineMetricsLogic(ScriptedLoadableModuleLogic):
     self.outputPlotSeriesNode = None
     self.outputTableNode = None
     self.plotChartNode = None
+    self.axis = 2 # Default to vertical
 
   def __del__(self):
       return
@@ -178,6 +220,9 @@ class CenterLineMetricsLogic(ScriptedLoadableModuleLogic):
     if self.outputPlotSeriesNode == plotSeriesNode:
       return
     self.outputPlotSeriesNode = plotSeriesNode
+    
+  def setAxis(self, selAxis):
+    self.axis = selAxis
 
   def update(self):
     self.updateOutputTable(self.inputModelNode, self.outputTableNode)
@@ -204,7 +249,7 @@ class CenterLineMetricsLogic(ScriptedLoadableModuleLogic):
     radii = slicer.util.arrayFromModelPointData(inputModel, 'Radius')
     outputTable.GetTable().SetNumberOfRows(radii.size)
     for i, radius in enumerate(radii):
-        distanceArray.SetValue(i, points[i][2])
+        distanceArray.SetValue(i, points[i][self.axis])
         diameterArray.SetValue(i, radius * 2)
     distanceArray.Modified()
     diameterArray.Modified()

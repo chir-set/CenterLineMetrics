@@ -2,6 +2,7 @@ import os
 import unittest
 import vtk, qt, ctk, slicer
 from slicer.ScriptedLoadableModule import *
+import numpy
 import logging
 
 """
@@ -100,12 +101,32 @@ class CenterLineMetricsWidget(ScriptedLoadableModuleWidget):
     parametersFormLayout.addRow("Output plot series: ", self.outputPlotSeriesSelector)
     
     #
+    # Distance mode selector
+    #
+    self.distModeWidget = qt.QWidget()
+    self.distModeLayout = qt.QHBoxLayout()
+    self.distModeGroup = ctk.ctkButtonGroup(self.distModeWidget)
+    self.radioCumulative = qt.QRadioButton()
+    self.radioProjected = qt.QRadioButton()
+    self.radioCumulative.setText("Cumulative")
+    self.radioProjected.setText("Projected")
+    self.distModeLayout.addWidget(self.radioCumulative)
+    self.distModeLayout.addWidget(self.radioProjected)
+    self.distModeGroup.addButton(self.radioCumulative)
+    self.distModeGroup.addButton(self.radioProjected)
+    self.distModeWidget.setLayout(self.distModeLayout)
+    self.radioProjected.setChecked(True)
+    self.radioCumulative.setToolTip("Cumulative distance along the centerline")
+    self.radioProjected.setToolTip("Projected distance on the selected axis. This allows to locate a point in a 2D view.")
+    parametersFormLayout.addRow("Distance mode: ", self.distModeWidget)
+    
+    #
     # Axis selector
     # https://cpp.hotexamples.com/it/examples/-/-/spy3/cpp-spy3-function-examples.html
     #
-    self.widget = qt.QWidget()
+    self.axisWidget = qt.QWidget()
     self.rasLayout = qt.QHBoxLayout()
-    self.group = ctk.ctkButtonGroup(self.widget)
+    self.group = ctk.ctkButtonGroup(self.axisWidget)
     self.radioR = qt.QRadioButton()
     self.radioA = qt.QRadioButton()
     self.radioS = qt.QRadioButton()
@@ -118,12 +139,12 @@ class CenterLineMetricsWidget(ScriptedLoadableModuleWidget):
     self.group.addButton(self.radioR)
     self.group.addButton(self.radioA)
     self.group.addButton(self.radioS)
-    self.widget.setLayout(self.rasLayout)
+    self.axisWidget.setLayout(self.rasLayout)
     self.radioS.setChecked(True) # Default to superior
     self.radioR.setToolTip("X axis")
     self.radioA.setToolTip("Z axis")
     self.radioS.setToolTip("Y axis")
-    parametersFormLayout.addRow("Axis: ", self.widget)
+    parametersFormLayout.addRow("Axis: ", self.axisWidget)
     
     #
     # Apply Button
@@ -142,6 +163,8 @@ class CenterLineMetricsWidget(ScriptedLoadableModuleWidget):
     self.radioR.connect("clicked()", self.onRadioR)
     self.radioA.connect("clicked()", self.onRadioA)
     self.radioS.connect("clicked()", self.onRadioS)
+    self.radioCumulative.connect("clicked()", self.onRadioCumulative)
+    self.radioProjected.connect("clicked()", self.onRadioProjected)
 
     # Add vertical spacer
     self.layout.addStretch(1)
@@ -181,7 +204,14 @@ class CenterLineMetricsWidget(ScriptedLoadableModuleWidget):
   def onRadioS(self):
     self.group.setId(self.radioS, 2)
     self.logic.setAxis(self.group.id(self.radioS))
+    
+  def onRadioCumulative(self):
+    self.axisWidget.hide()
+    self.logic.distanceMode = 0
 
+  def onRadioProjected(self):
+    self.axisWidget.show()
+    self.logic.distanceMode = 1
 #
 # CenterLineMetricsLogic
 #
@@ -202,6 +232,7 @@ class CenterLineMetricsLogic(ScriptedLoadableModuleLogic):
     self.outputTableNode = None
     self.plotChartNode = None
     self.axis = 2 # Default to vertical
+    self.distanceMode = 1 # Default to projected
 
   def __del__(self):
       return
@@ -248,8 +279,14 @@ class CenterLineMetricsLogic(ScriptedLoadableModuleLogic):
     points = slicer.util.arrayFromModelPoints(inputModel)
     radii = slicer.util.arrayFromModelPointData(inputModel, 'Radius')
     outputTable.GetTable().SetNumberOfRows(radii.size)
+    if self.distanceMode == 0:
+        cumArray = vtk.vtkDoubleArray()
+        self.cumulateDistances(points, cumArray)
     for i, radius in enumerate(radii):
-        distanceArray.SetValue(i, points[i][self.axis])
+        if self.distanceMode != 0:
+            distanceArray.SetValue(i, points[i][self.axis])
+        else:
+            distanceArray.SetValue(i, cumArray.GetValue(i))
         diameterArray.SetValue(i, radius * 2)
     distanceArray.Modified()
     diameterArray.Modified()
@@ -280,7 +317,16 @@ class CenterLineMetricsLogic(ScriptedLoadableModuleLogic):
     # Show plot in layout
     slicer.modules.plots.logic().ShowChartInLayout(self.plotChartNode)
     slicer.app.layoutManager().plotWidget(0).plotView().fitToContent()
-
+    
+  def cumulateDistances(self, arrPoints, cumArray):
+    cumArray.SetNumberOfValues(arrPoints.size)
+    previous = arrPoints[0]
+    dist = 0
+    for i, point in enumerate(arrPoints):
+      # https://stackoverflow.com/questions/1401712/how-can-the-euclidean-distance-be-calculated-with-numpy
+      dist += numpy.linalg.norm(point - previous)
+      cumArray.SetValue(i, dist)
+      previous = point
 
 class CenterLineMetricsTest(ScriptedLoadableModuleTest):
   """

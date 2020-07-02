@@ -22,9 +22,9 @@ class CenterLineMetrics(ScriptedLoadableModule):
     self.parent.title = "Centerline metrics"
     self.parent.categories = ["Utilities"]
     self.parent.dependencies = []
-    parent.contributors = ["SET (chir.set@free.fr)"]
+    parent.contributors = ["SET (Hobbyist)"]
     self.parent.helpText = """
-This module plots average diameters around a VMTK centerline model. The graphical plot is more readable for a non-bifurcated centerline.
+This module plots average diameters around a VMTK centerline model. It is intended for non-bifurcated centerlines.
 """
     self.parent.helpText += self.getDefaultModuleDocumentationLink()
     self.parent.acknowledgementText = """

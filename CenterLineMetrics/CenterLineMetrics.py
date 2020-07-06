@@ -1,9 +1,10 @@
 import os
 import unittest
-import vtk, qt, ctk, slicer
-from slicer.ScriptedLoadableModule import *
-import numpy
 import logging
+import vtk, qt, ctk, slicer
+import numpy
+from slicer.ScriptedLoadableModule import *
+from slicer.util import VTKObservationMixin
 
 """
   CenterLineMetrics
@@ -19,199 +20,126 @@ class CenterLineMetrics(ScriptedLoadableModule):
 
   def __init__(self, parent):
     ScriptedLoadableModule.__init__(self, parent)
-    self.parent.title = "Centerline metrics"
-    self.parent.categories = ["Utilities"]
-    self.parent.dependencies = []
-    parent.contributors = ["SET (Hobbyist)"]
+    self.parent.title = "CenterLineMetrics"  # TODO: make this more human readable by adding spaces
+    self.parent.categories = ["Utilities"]  # TODO: set categories (folders where the module shows up in the module selector)
+    self.parent.dependencies = []  # TODO: add here list of module names that this module requires
+    self.parent.contributors = ["SET (Hobbyist)"]  # TODO: replace with "Firstname Lastname (Organization)"
     self.parent.helpText = """
 This module plots average diameters around a VMTK centerline model. It is intended for non-bifurcated centerlines.
-"""
-    self.parent.helpText += self.getDefaultModuleDocumentationLink()
+"""  # TODO: update with short description of the module
+    self.parent.helpText += self.getDefaultModuleDocumentationLink()  # TODO: verify that the default URL is correct or change it to the actual documentation
     self.parent.acknowledgementText = """
 This file was originally developed by Jean-Christophe Fillion-Robin, Kitware Inc., Andras Lasso, PerkLab,
 and Steve Pieper, Isomics, Inc. and was partially funded by NIH grant 3P41RR013218-12S1.
-""" # replace with organization, grant and thanks.
+"""  # TODO: replace with organization, grant and thanks.
 
 #
 # CenterLineMetricsWidget
 #
 
-class CenterLineMetricsWidget(ScriptedLoadableModuleWidget):
+class CenterLineMetricsWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
   """Uses ScriptedLoadableModuleWidget base class, available at:
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
 
+  def __init__(self, parent=None):
+    """
+    Called when the user opens the module the first time and the widget is initialized.
+    """
+    ScriptedLoadableModuleWidget.__init__(self, parent)
+    VTKObservationMixin.__init__(self)  # needed for parameter node observation
+    self.logic = None
+
   def setup(self):
+    """
+    Called when the user opens the module the first time and the widget is initialized.
+    """
     ScriptedLoadableModuleWidget.setup(self)
 
+    # Load widget from .ui file (created by Qt Designer)
+    uiWidget = slicer.util.loadUI(self.resourcePath('UI/CenterLineMetrics.ui'))
+    self.layout.addWidget(uiWidget)
+    self.ui = slicer.util.childWidgetVariables(uiWidget)
+
+    # Set scene in MRML widgets. Make sure that in Qt designer
+    # "mrmlSceneChanged(vtkMRMLScene*)" signal in is connected to each MRML widget's.
+    # "setMRMLScene(vtkMRMLScene*)" slot.
+    uiWidget.setMRMLScene(slicer.mrmlScene)
+
     self.logic = CenterLineMetricsLogic()
-
-    # Instantiate and connect widgets ...
-
-    #
-    # Parameters Area
-    #
-    parametersCollapsibleButton = ctk.ctkCollapsibleButton()
-    parametersCollapsibleButton.text = "Parameters"
-    self.layout.addWidget(parametersCollapsibleButton)
-
-    # Layout within the dummy collapsible button
-    parametersFormLayout = qt.QFormLayout(parametersCollapsibleButton)
-
-    #
-    # input model selector
-    #
-    self.inputModelSelector = slicer.qMRMLNodeComboBox()
-    self.inputModelSelector.nodeTypes = ["vtkMRMLModelNode"]
-    self.inputModelSelector.selectNodeUponCreation = True
-    self.inputModelSelector.addEnabled = False
-    self.inputModelSelector.removeEnabled = False
-    self.inputModelSelector.noneEnabled = False
-    self.inputModelSelector.showHidden = False
-    self.inputModelSelector.setMRMLScene(slicer.mrmlScene)
-    self.inputModelSelector.setToolTip("Pick the input VMTK centerline.")
-    parametersFormLayout.addRow("Input centerline: ", self.inputModelSelector)
-
-    #
-    # output table selector
-    #
-    self.outputTableSelector = slicer.qMRMLNodeComboBox()
-    self.outputTableSelector.nodeTypes = ["vtkMRMLTableNode"]
-    self.outputTableSelector.addEnabled = True
-    self.outputTableSelector.renameEnabled = True
-    self.outputTableSelector.removeEnabled = True
-    self.outputTableSelector.noneEnabled = True
-    self.outputTableSelector.showHidden = False
-    self.outputTableSelector.setMRMLScene( slicer.mrmlScene )
-    self.outputTableSelector.setToolTip( "Pick the output table to the algorithm." )
-    parametersFormLayout.addRow("Output table: ", self.outputTableSelector)
-
-    #
-    # output plot selector
-    #
-    self.outputPlotSeriesSelector = slicer.qMRMLNodeComboBox()
-    self.outputPlotSeriesSelector.nodeTypes = ["vtkMRMLPlotSeriesNode"]
-    self.outputPlotSeriesSelector.addEnabled = True
-    self.outputPlotSeriesSelector.renameEnabled = True
-    self.outputPlotSeriesSelector.removeEnabled = True
-    self.outputPlotSeriesSelector.noneEnabled = True
-    self.outputPlotSeriesSelector.showHidden = False
-    self.outputPlotSeriesSelector.setMRMLScene( slicer.mrmlScene )
-    self.outputPlotSeriesSelector.setToolTip( "Pick the output plot series to the algorithm." )
-    parametersFormLayout.addRow("Output plot series: ", self.outputPlotSeriesSelector)
-    
-    #
-    # Distance mode selector
-    #
-    self.distModeWidget = qt.QWidget()
-    self.distModeLayout = qt.QHBoxLayout()
-    self.distModeGroup = ctk.ctkButtonGroup(self.distModeWidget)
-    self.radioCumulative = qt.QRadioButton()
-    self.radioProjected = qt.QRadioButton()
-    self.radioCumulative.setText("Cumulative")
-    self.radioProjected.setText("Projected")
-    self.distModeLayout.addWidget(self.radioCumulative)
-    self.distModeLayout.addWidget(self.radioProjected)
-    self.distModeGroup.addButton(self.radioCumulative)
-    self.distModeGroup.addButton(self.radioProjected)
-    self.distModeWidget.setLayout(self.distModeLayout)
-    self.radioProjected.setChecked(True)
-    self.radioCumulative.setToolTip("Cumulative distance along the centerline")
-    self.radioProjected.setToolTip("Projected distance on the selected axis. This allows to locate a point in a 2D view.")
-    parametersFormLayout.addRow("Distance mode: ", self.distModeWidget)
-    
-    #
-    # Axis selector
-    # https://cpp.hotexamples.com/it/examples/-/-/spy3/cpp-spy3-function-examples.html
-    #
-    self.axisWidget = qt.QWidget()
-    self.rasLayout = qt.QHBoxLayout()
-    self.group = ctk.ctkButtonGroup(self.axisWidget)
-    self.radioR = qt.QRadioButton()
-    self.radioA = qt.QRadioButton()
-    self.radioS = qt.QRadioButton()
-    self.radioR.setText("R")
-    self.radioA.setText("A")
-    self.radioS.setText("S")
-    self.rasLayout.addWidget(self.radioR)
-    self.rasLayout.addWidget(self.radioA)
-    self.rasLayout.addWidget(self.radioS)
-    self.group.addButton(self.radioR)
-    self.group.addButton(self.radioA)
-    self.group.addButton(self.radioS)
-    self.axisWidget.setLayout(self.rasLayout)
-    self.radioS.setChecked(True) # Default to superior
-    self.radioR.setToolTip("X axis")
-    self.radioA.setToolTip("Z axis")
-    self.radioS.setToolTip("Y axis")
-    parametersFormLayout.addRow("Axis: ", self.axisWidget)
-    
-    #
-    # Apply Button
-    #
-    self.applyButton = ctk.ctkPushButton()
-    self.applyButton.text = "Compute diameters"
-    self.applyButton.toolTip = "Run the algorithm."
-    self.applyButton.enabled = False
-    parametersFormLayout.addRow(self.applyButton)
+    self.ui.radioProjected.setChecked(True) # Default to projected distance
+    self.ui.radioS.setChecked(True) # Default to superior
 
     # connections
-    self.applyButton.connect('clicked(bool)', self.onApplyButton)
-    self.inputModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectNode)
-    self.outputPlotSeriesSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectNode)
-    self.outputTableSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectNode)
-    self.radioR.connect("clicked()", self.onRadioR)
-    self.radioA.connect("clicked()", self.onRadioA)
-    self.radioS.connect("clicked()", self.onRadioS)
-    self.radioCumulative.connect("clicked()", self.onRadioCumulative)
-    self.radioProjected.connect("clicked()", self.onRadioProjected)
-
-    # Add vertical spacer
-    self.layout.addStretch(1)
+    self.ui.applyButton.connect('clicked(bool)', self.onApplyButton)
+    self.ui.inputModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectNode)
+    self.ui.outputPlotSeriesSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectNode)
+    self.ui.outputTableSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectNode)
+    self.ui.radioR.connect("clicked()", self.onRadioR)
+    self.ui.radioA.connect("clicked()", self.onRadioA)
+    self.ui.radioS.connect("clicked()", self.onRadioS)
+    self.ui.radioCumulative.connect("clicked()", self.onRadioCumulative)
+    self.ui.radioProjected.connect("clicked()", self.onRadioProjected)
 
     # Refresh Apply button state
     self.onSelectNode()
-
+    
   def cleanup(self):
-      return
+    """
+    Called when the application closes and the module widget is destroyed.
+    """
+    self.removeObservers()
+    
+  def onApplyButton(self):
+    """
+    Run processing when user clicks "Apply" button.
+    """
+    try:
+      self.createOutputNodes()
+      self.logic.run()
 
+    except Exception as e:
+      slicer.util.errorDisplay("Failed to compute results: "+str(e))
+      import traceback
+      traceback.print_exc()
+  
   def onSelectNode(self):
-    self.applyButton.enabled = self.inputModelSelector.currentNode()
-    self.logic.setInputModelNode(self.inputModelSelector.currentNode())
-    self.logic.setOutputTableNode(self.outputTableSelector.currentNode())
-    self.logic.setOutputPlotSeriesNode(self.outputPlotSeriesSelector.currentNode())
+    self.ui.applyButton.enabled = self.ui.inputModelSelector.currentNode()
+    self.logic.setInputModelNode(self.ui.inputModelSelector.currentNode())
+    self.logic.setOutputTableNode(self.ui.outputTableSelector.currentNode())
+    self.logic.setOutputPlotSeriesNode(self.ui.outputPlotSeriesSelector.currentNode())
 
   def createOutputNodes(self):
-    if not self.outputTableSelector.currentNode():
+    if not self.ui.outputTableSelector.currentNode():
       outputTableNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLTableNode")
-      self.outputTableSelector.setCurrentNode(outputTableNode)
-    if not self.outputPlotSeriesSelector.currentNode():
+      self.ui.outputTableSelector.setCurrentNode(outputTableNode)
+    if not self.ui.outputPlotSeriesSelector.currentNode():
       outputPlotSeriesNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLPlotSeriesNode")
-      self.outputPlotSeriesSelector.setCurrentNode(outputPlotSeriesNode)
+      self.ui.outputPlotSeriesSelector.setCurrentNode(outputPlotSeriesNode)
 
   def onApplyButton(self):
     self.createOutputNodes()
-    self.logic.update()
+    self.logic.run()
   
   def onRadioR(self):
-    self.group.setId(self.radioR, 0)
-    self.logic.setAxis(self.group.id(self.radioR)) # Why not pass 0 ?
+    self.logic.setAxis(0)
     
   def onRadioA(self):
-    self.group.setId(self.radioA, 1)
-    self.logic.setAxis(self.group.id(self.radioA))
+    self.logic.setAxis(1)
     
   def onRadioS(self):
-    self.group.setId(self.radioS, 2)
-    self.logic.setAxis(self.group.id(self.radioS))
+    self.logic.setAxis(2)
     
   def onRadioCumulative(self):
-    self.axisWidget.hide()
+    self.ui.axisLabel.hide()
+    self.ui.axisGroup.hide()
     self.logic.distanceMode = 0
 
   def onRadioProjected(self):
-    self.axisWidget.show()
+    self.ui.axisLabel.show()
+    self.ui.axisGroup.show()
     self.logic.distanceMode = 1
+
 #
 # CenterLineMetricsLogic
 #
@@ -225,7 +153,6 @@ class CenterLineMetricsLogic(ScriptedLoadableModuleLogic):
   Uses ScriptedLoadableModuleLogic base class, available at:
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
-
   def __init__(self):
     self.inputModelNode = None
     self.outputPlotSeriesNode = None
@@ -233,9 +160,6 @@ class CenterLineMetricsLogic(ScriptedLoadableModuleLogic):
     self.plotChartNode = None
     self.axis = 2 # Default to vertical
     self.distanceMode = 1 # Default to projected
-
-  def __del__(self):
-      return
 
   def setInputModelNode(self, modelNode):
     if self.inputModelNode == modelNode:
@@ -254,12 +178,17 @@ class CenterLineMetricsLogic(ScriptedLoadableModuleLogic):
     
   def setAxis(self, selAxis):
     self.axis = selAxis
+    
+  def run(self):
+    if not self.inputModelNode:
+      raise ValueError("Input is invalid")
 
-  def update(self):
+    logging.info('Processing started')
     self.updateOutputTable(self.inputModelNode, self.outputTableNode)
     self.updatePlot(self.outputPlotSeriesNode, self.outputTableNode, self.inputModelNode.GetName())
     self.showPlot()
-
+    logging.info('Processing completed')
+    
   def getArrayFromTable(self, outputTable, arrayName):
     distanceArray = outputTable.GetTable().GetColumnByName(arrayName)
     if distanceArray:
@@ -328,6 +257,10 @@ class CenterLineMetricsLogic(ScriptedLoadableModuleLogic):
       cumArray.SetValue(i, dist)
       previous = point
 
+#
+# CenterLineMetricsTest
+#
+
 class CenterLineMetricsTest(ScriptedLoadableModuleTest):
   """
   This is the test case for your scripted module.
@@ -341,34 +274,12 @@ class CenterLineMetricsTest(ScriptedLoadableModuleTest):
     slicer.mrmlScene.Clear(0)
 
   def runTest(self):
-    """Run as few or as many tests as needed here.
     """
-    self.setUp()
-    self.test_CenterLineMetrics1()
+    """
 
   def test_CenterLineMetrics1(self):
-    """ Ideally you should have several levels of tests.  At the lowest level
-    tests should exercise the functionality of the logic with different inputs
-    (both valid and invalid).  At higher levels your tests should emulate the
-    way the user would interact with your code and confirm that it still works
-    the way you intended.
-    One of the most important features of the tests is that it should alert other
-    developers when their changes will have an impact on the behavior of your
-    module.  For example, if a developer removes a feature that you depend on,
-    your test should break so they know that the feature is needed.
     """
-
-    self.delayDisplay("Starting the test")
-    #
-    # first, get some data
-    #
-    import SampleData
-    sampleDataLogic = SampleData.SampleDataLogic()
-    modelNode = sampleDataLogic.downloadMRHead()
-
-    logic = CenterLineMetricsLogic()
-
-    self.delayDisplay('Test passed!')
+    """
 
 DISTANCE_ARRAY_NAME = "Distance"
 DIAMETER_ARRAY_NAME = "Diameter"
